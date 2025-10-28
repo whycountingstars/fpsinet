@@ -32,16 +32,6 @@
    - train.py 支持命令行参数:
      --lambda_fft (默认 0.2), --lambda_perc (默认 0.01), --lambda_ssim (默认 0.1)
 
-将项目推送到 GitHub（本地操作示例）
-1. 初始化本地仓库并提交：
-   git init
-   git add .
-   git commit -m "Initial commit: PSINet-like stripe denoiser"
-
-2. 创建远程仓库（在 GitHub 网站或使用 gh CLI），然后推送：
-   git remote add origin git@github.com:<your-username>/<repo>.git
-   git branch -M main
-   git push -u origin main
 
 
 其他说明
