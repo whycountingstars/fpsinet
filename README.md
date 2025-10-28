@@ -43,7 +43,6 @@
    git branch -M main
    git push -u origin main
 
-注：想让我直接为你在 GitHub 上创建仓库或打开 PR，请告诉我你希望用的仓库名（例如 whycountingstars/psinet-stripe-denoiser），我可以根据你的授权生成 PR 或推送（需要你授权或提供 repo 权限）。
 
 其他说明
 - 若启用 VGG perceptual loss，会自动加载 torchvision 的 VGG16 权重（需联网下载一次）
