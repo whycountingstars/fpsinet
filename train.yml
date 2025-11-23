@@ -1,0 +1,64 @@
+# Training configuration for fpsinet
+# Save as train.yml and edit paths / hyperparams as needed.
+
+dataset:
+  # Required: path to clean images (for paired training or synthetic generation)
+  clean_dir: /path/to/clean
+  # Optional: path to real noisy images (same filenames expected). If omitted, synthetic noisy is used.
+  noisy_dir: /path/to/noisy
+  # When noisy_dir exists, synth_prob is the probability to replace a real noisy sample with synthetic one.
+  synth_prob: 0.0
+
+  # augmentation / loader
+  patch: 128                # random crop size for training
+  val_split: 0.10           # fraction used for validation (0.0-0.5)
+  num_workers: 4
+  pin_memory: true
+
+model:
+  in_channels: 3
+  base_channels: 32
+  growth_rate: 16
+  rdb_layers: 3
+  n_rdb_per_scale: 2
+  n_scales: 3
+
+training:
+  epochs: 120
+  batch_size: 8
+  lr: 1e-4
+  optimizer: adam
+  weight_decay: 0.0
+  amp: true                # mixed precision (torch.cuda.amp)
+  seed: 42
+  out_dir: checkpoints
+  save_every: 1            # save checkpoint each N epochs
+  save_best_by: psnr       # metric to track best model ('psnr' or 'val_loss')
+  resume: null             # path to checkpoint to resume, or null
+
+losses:
+  lambda_l1: 1.0
+  lambda_fft: 0.2
+  lambda_perc: 0.01
+  lambda_ssim: 0.1
+
+scheduler:
+  type: ReduceLROnPlateau
+  mode: min
+  factor: 0.5
+  patience: 6
+  verbose: true
+
+logging:
+  vis_dir: checkpoints/vis
+  log_interval_steps: 50   # print every N steps
+  val_interval_epochs: 1
+
+memory_test:
+  enabled: false           # set true to run model memory test before training
+
+notes:
+  # Suggested defaults for 2080Ti (22GB) and ~2000 images:
+  # - base_channels 32, growth_rate 16, n_scales 3, batch_size 8, patch 128 (AMP enabled)
+  # - If OOM: reduce batch_size or base_channels -> 24; or disable VGG (lambda_perc=0).
+  # - For large stripe structures, increase patch or n_scales.
