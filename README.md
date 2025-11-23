@@ -29,10 +29,13 @@
         python train.py --clean_dir /data/clean --noisy_dir /data/noisy --synth_prob 0.0 --batch_size 8 --patch 128 --epochs 60 --out_dir ./finetune
 
 5. 调整损失权重：
-   - train.py 支持命令行参数:
-     --lambda_fft (默认 0.2), --lambda_perc (默认 0.01), --lambda_ssim (默认 0.1)
+train.py 支持命令行参数:
+     lambda_fft (默认 0.2), --lambda_perc (默认 0.01), --lambda_ssim (默认 0.1)
 
 
+一键训练一键测试：
+python run_from_config.py --mode train --config train.yml
+python run_from_config.py --mode test --config test.yml
 
 其他说明
 - 若启用 VGG perceptual loss，会自动加载 torchvision 的 VGG16 权重（需联网下载一次）
