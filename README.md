@@ -62,7 +62,7 @@ Total Variation (TV) 介绍与如何使用
 
 如何查看模型中间量（gate / res_low / res_high）
 - train.py 默认会把 noisy | pred | clean 的合成可视化保存在 checkpoints/vis；
-- 我建议把 train.py 做扩展 (我可以替你改) 以单独保存 gate/res_low/res_high（灰度图或伪彩色）便于调参；如需我可以在下一步提交该改动。
+- 建议把 train.py 做扩展 以单独保存 gate/res_low/res_high（灰度图或伪彩色）便于调参。
 
 运行示例
 - 训练（使用 run_from_config）
@@ -76,10 +76,3 @@ Total Variation (TV) 介绍与如何使用
 3. 调整 region_weight 观察下半区域效果；若整体欠拟合则增加模型容量和 training epochs；
 4. 使用 profiler/monitoring（nvidia-smi -l 1）检查 GPU 利用率，并在需要时增加 num_workers、pin_memory、persistent_workers 或增大 batch size。
 
-需要我替你继续做的事（选项）
-- A）我把 train.py 扩展为把 gate/res_low/res_high 单独保存为图像（便于调参）；
-- B）我把 run_from_config 的 build_train_cmd / train.yml 示例同步更新（若你希望通过 YAML 控制更多新 dataset 参数）；
-- C）帮你生成一组预设的 train.yml 文件（baseline / lowfreq-tv / large-model）供你直接拷贝运行；
-- D）其他（请说明）
-
-请选择 A/B/C/D 或“都做”，我会按你选择继续修改并提交相应文件。祝你训练顺利 — 如果你把最近一次训练的可视化图（checkpoints/vis 里）贴上来，我可以直接根据图建议具体 lambda 值与 region_weight。
