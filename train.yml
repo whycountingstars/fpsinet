@@ -1,46 +1,68 @@
 # Training configuration for fpsinet
-# Save as train.yml and edit paths / hyperparams as needed.
+# Edit paths / hyperparams as needed. This file contains recommended defaults for ~22GB GPU.
 
 dataset:
   # Required: path to clean images (for paired training or synthetic generation)
-  clean_dir: /path/to/clean
+  clean_dir: D:/BaiduNetdiskDownload/LTCdata/after_2-1_1-15
   # Optional: path to real noisy images (same filenames expected). If omitted, synthetic noisy is used.
-  noisy_dir: /path/to/noisy
-  # When noisy_dir exists, synth_prob is the probability to replace a real noisy sample with synthetic one.
-  synth_prob: 0.0
+  noisy_dir: D:/BaiduNetdiskDownload/LTCdata/after_2-4_1-15
+
+  # Data preprocessing options (useful when clean is single-value / binary)
+  force_gray: true            # convert clean images to single-channel gray when loading
+  binarize_threshold: 0.5    # if set, clean will be thresholded to 0/1 using this threshold (useful for binary GT)
 
   # augmentation / loader
-  patch: 128                # random crop size for training
-  val_split: 0.10           # fraction used for validation (0.0-0.5)
-  num_workers: 4
+  patch: 256                 # random crop size for training (increase if GPU memory allows)
+  val_split: 0.10            # fraction used for validation (0.0-0.5)
+  num_workers: 8
   pin_memory: true
+  synth_prob: 0.0            # probability to synthesize noisy even when paired noisy exists
 
 model:
+  # Model construction params (tweak to increase/decrease capacity)
   in_channels: 3
-  base_channels: 32
-  growth_rate: 16
-  rdb_layers: 3
-  n_rdb_per_scale: 2
-  n_scales: 3
+  out_channels: 1            # single-channel logits output (suitable for binary/single-value GT)
+  base_channels: 64          # increased capacity for 22GB GPU
+  growth_rate: 24
+  rdb_layers: 4
+  n_rdb_per_scale: 3
+  n_scales: 4
+  use_cbam: true             # enable CBAM attention (channel + spatial)
+  # Low-frequency branch params (larger receptive field helps smoother background)
+  lowfreq_mid: 256
+  lowfreq_down: 5
 
 training:
-  epochs: 120
-  batch_size: 8
+  epochs: 300
+  batch_size: 8              # recommended start for 22GB; increase if memory allows
   lr: 1e-4
   optimizer: adam
   weight_decay: 0.0
-  amp: true                # mixed precision (torch.cuda.amp)
+  amp: true                  # keep mixed precision when using CUDA
   seed: 42
   out_dir: checkpoints
-  save_every: 1            # save checkpoint each N epochs
-  save_best_by: psnr       # metric to track best model ('psnr' or 'val_loss')
-  resume: null             # path to checkpoint to resume, or null
+  save_every: 1              # save checkpoint each N epochs
+  save_best_by: psnr         # metric to track best model ('psnr' or 'val_loss')
+  resume: null               # path to checkpoint to resume, or null
 
 losses:
+  # Base pixel loss
   lambda_l1: 1.0
-  lambda_fft: 0.2
-  lambda_perc: 0.01
-  lambda_ssim: 0.1
+
+  # Low-frequency & TV (new)
+  lambda_lowfreq: 1.0        # L1 on lowpass(pred) vs lowpass(gt) (encourage correct low-freq)
+  lambda_tv: 0.01            # TV regularization on low-frequency residual (encourage smoothness)
+
+  # If you prefer simpler baseline experiments, set lambda_lowfreq=0 and lambda_tv=0
+  # Additional existing losses (optional)
+  lambda_fft: 0.05           # small FFT loss; set to 0 for simpler binary experiments
+  lambda_perc: 0.0           # perceptual loss not useful for binary single-value outputs (set 0)
+  lambda_ssim: 0.0
+
+extra:
+  binary_output: true        # train model as binary output (uses BCEWithLogits internally)
+  region_weight: 5.0         # multiply pixel loss in lower half by this factor (emphasize bottom region)
+  lowfreq_blur_sigma: 2.0    # Gaussian sigma used when computing low-frequency L1 loss
 
 scheduler:
   type: ReduceLROnPlateau
@@ -51,14 +73,22 @@ scheduler:
 
 logging:
   vis_dir: checkpoints/vis
-  log_interval_steps: 50   # print every N steps
+  log_interval_steps: 50
   val_interval_epochs: 1
 
 memory_test:
-  enabled: false           # set true to run model memory test before training
+  enabled: false
 
 notes:
-  # Suggested defaults for 2080Ti (22GB) and ~2000 images:
-  # - base_channels 32, growth_rate 16, n_scales 3, batch_size 8, patch 128 (AMP enabled)
-  # - If OOM: reduce batch_size or base_channels -> 24; or disable VGG (lambda_perc=0).
-  # - For large stripe structures, increase patch or n_scales.
+  # Suggested experiment sequence (recommended)
+  # 1) Baseline binary L1-only:
+  #    - set losses.lambda_fft=0, lambda_perc=0, lambda_ssim=0
+  #    - set extra.binary_output=true
+  #    - run 10-20 epochs and check visuals
+  # 2) Add low-frequency supervision:
+  #    - set losses.lambda_lowfreq=1.0 and extra.lowfreq_blur_sigma=2.0
+  #    - set losses.lambda_tv=0.01
+  # 3) Emphasize lower half:
+  #    - set extra.region_weight=3..8
+  # 4) Increase capacity if underfitting:
+  #    - base_channels -> 80, batch_size adjust accordingly
