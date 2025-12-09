@@ -1,6 +1,4 @@
-# Inference / evaluation configuration for fpsinet
-# Save as test.yml and edit values. Useful for single-image or batch inference.
-
+# Inference / evaluation configuration for fpsinet (updated defaults)
 inference:
   # model checkpoint to load (relative or absolute)
   checkpoint: checkpoints/psinet_best_by_psnr.pth
@@ -12,37 +10,35 @@ inference:
 
   # output
   output_dir: outputs
-  save_visuals: true        # save noisy / denoised / clean composites for quick inspection
-  save_individual: true     # save denoised images individually
-  save_residual: false      # also save predicted residual maps
+  save_visuals: true
+  save_individual: true
+  save_residual: false
 
   # runtime/tiling
   device: cuda:0
   use_amp: true
-  batch_size: 1             # for full images; for patch-based inference you can increase
-  patch: 0                  # 0 => run on full images; set >0 to do patch-based inference
+  batch_size: 1
+  patch: 0
   tile:
     enabled: false
     tile_size: 512
     overlap: 32
 
   # postprocess
-  clamp_output: true        # clamp output to [0,1]
-  convert_to_uint8: true    # save uint8 pngs (0-255)
+  clamp_output: true
+  convert_to_uint8: true
+
+  # binary mode threshold (if model outputs single-channel logits and you want binarized output)
+  threshold: 0.5
 
 metrics:
-  compute_psnr: true        # requires clean_path to be set
+  compute_psnr: true
   compute_ssim: true
 
 tta:
-  enabled: false            # test-time augmentation (e.g., flips) and average results
-  transforms: ["hflip", "vflip"]  # which transforms to use if tta enabled
+  enabled: false
+  transforms: ["hflip", "vflip"]
 
 notes:
-  # Example usage (if you have helper script to parse YAML):
-  # python run_inference.py --config test.yml
-  #
-  # If you only want to denoise a single image:
-  # set input_path to the image file and output_dir to desired folder.
-  #
-  # For very large images, enable tile with appropriate tile_size and overlap.
+  # For binary outputs, after loading checkpoint you can compute:
+  # pred_bin = (torch.sigmoid(out) > threshold).float()
