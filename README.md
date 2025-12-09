@@ -1,6 +1,6 @@
 # PSINet-like Stripe Denoiser (RDB + U-Net + FFT/VGG/SSIM + LowFreq/TV)
 
-这是为条纹/线性噪声去除任务定制的 PyTorch 项目。此仓库针对你的需求已扩展：
+这是为条纹/线性噪声去除任务定制的 PyTorch 项目：
 - 单通道（二值 / 单值）输出支持（binary modes）
 - Low-frequency branch + TV 正则，用于学习平滑背景（适合需要“下半部分平整”）
 - 轻量注意力（CBAM）用于自动关注关键区域
