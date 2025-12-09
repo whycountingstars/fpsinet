@@ -20,7 +20,7 @@
 - noisy_dir：可选。如果提供 noisy_dir 且文件名与 clean 相同，会优先使用真实配对数据；若不提供则用内置合成器生成 noisy。
 - train.yml 中可启用 dataset.force_gray=true 和 dataset.binarize_threshold=0.5 来在加载时自动转换与二值化 clean。
 
-要点修改与使用（你关心的三点）
+修改要点
 1) 直接输出单值 / 二值
 - train.yml: extra.binary_output: true （训练时使用 BCEWithLogitsLoss）
 - 数据：确保 clean_dir 存放二值图像，或在 train.yml dataset.force_gray=true 和 dataset.binarize_threshold=0.5
