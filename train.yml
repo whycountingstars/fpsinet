@@ -33,35 +33,35 @@ model:
   lowfreq_down: 5
 
 training:
-  epochs: 300
+  epochs: 20
   batch_size: 8              # recommended start for 22GB; increase if memory allows
-  lr: 1e-4
+  lr: 5e-4
   optimizer: adam
   weight_decay: 0.0
   amp: true                  # keep mixed precision when using CUDA
   seed: 42
   out_dir: checkpoints
-  save_every: 1              # save checkpoint each N epochs
+  save_every: 2              # save checkpoint each N epochs
   save_best_by: psnr         # metric to track best model ('psnr' or 'val_loss')
-  resume: null               # path to checkpoint to resume, or null
+  resume: r"C:\Users\Administrator\fpsinet\checkpoints\psinet_epoch19.pth"           # path to checkpoint to resume, or null
 
 losses:
   # Base pixel loss
   lambda_l1: 1.0
 
   # Low-frequency & TV (new)
-  lambda_lowfreq: 1.0        # L1 on lowpass(pred) vs lowpass(gt) (encourage correct low-freq)
-  lambda_tv: 0.01            # TV regularization on low-frequency residual (encourage smoothness)
+  lambda_lowfreq: 3      # L1 on lowpass(pred) vs lowpass(gt) (encourage correct low-freq)
+  lambda_tv: 0.5            # TV regularization on low-frequency residual (encourage smoothness)
 
   # If you prefer simpler baseline experiments, set lambda_lowfreq=0 and lambda_tv=0
   # Additional existing losses (optional)
-  lambda_fft: 0.05           # small FFT loss; set to 0 for simpler binary experiments
+  lambda_fft: 0.9       # small FFT loss; set to 0 for simpler binary experiments
   lambda_perc: 0.0           # perceptual loss not useful for binary single-value outputs (set 0)
-  lambda_ssim: 0.0
+  lambda_ssim: 0.01
 
 extra:
   binary_output: true        # train model as binary output (uses BCEWithLogits internally)
-  region_weight: 5.0         # multiply pixel loss in lower half by this factor (emphasize bottom region)
+  region_weight: 5         # multiply pixel loss in lower half by this factor (emphasize bottom region)
   lowfreq_blur_sigma: 2.0    # Gaussian sigma used when computing low-frequency L1 loss
 
 scheduler:
