@@ -4,12 +4,12 @@ inference:
   checkpoint: checkpoints/psinet_best_by_psnr.pth
 
   # Input: either a single image or a directory of noisy images
-  input_path: /path/to/noisy_or_dir
+  input_path: r"D:\BaiduNetdiskDownload\LTCdata\after_2-4_16-30"
   # Optional: if you have corresponding clean images (for PSNR/SSIM), set clean_path (same filenames expected)
-  clean_path: /path/to/clean_or_null
+  clean_path: null
 
   # output
-  output_dir: outputs
+  output_dir: r"D:\BaiduNetdiskDownload\LTCdata\output"
   save_visuals: true
   save_individual: true
   save_residual: false
