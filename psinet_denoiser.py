@@ -1,8 +1,9 @@
-# PSINetRDBUNet (optimized)
+# PSINetRDBUNet (modified)
 # - single-channel logits output (suitable for binary/single-value GT)
-# - CBAM attention (channel + spatial) applied to bottleneck and decoder output
-# - deeper-by-default params, configurable via constructor
-# - LowFreq branch retained and with larger receptive field
+# - CBAM attention (channel + spatial)
+# - LowFreq branch with reflection padding to reduce border artifacts
+# - Gate & lowfreq final conv initialized small to avoid lowfreq dominating early training
+# - Returns dict: {'denoised','res_low','res_high','gate'}
 
 import math
 import torch
@@ -10,11 +11,17 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 def rgb_to_gray(x):
-    # x: B,3,H,W -> return B,1,H,W
     r, g, b = x[:,0:1,:,:], x[:,1:2,:,:], x[:,2:3,:,:]
     return 0.2989 * r + 0.5870 * g + 0.1140 * b
 
-# ----- basic blocks -----
+# Helper conv using reflection padding to reduce border artifacts
+def conv3x3_reflect(in_ch, out_ch, stride=1, bias=True):
+    layers = []
+    # For stride>1 we keep reflection pad 1 and use stride in conv
+    layers.append(nn.ReflectionPad2d(1))
+    layers.append(nn.Conv2d(in_ch, out_ch, kernel_size=3, stride=stride, padding=0, bias=bias))
+    return nn.Sequential(*layers)
+
 class ConvBNReLU(nn.Sequential):
     def __init__(self, in_ch, out_ch, kernel_size=3, padding=1):
         super().__init__(
@@ -37,7 +44,6 @@ class ResidualDenseBlock(nn.Module):
     def __init__(self, in_channels, growth_rate=32, n_layers=4, res_scale=0.2):
         super().__init__()
         self.in_channels = in_channels
-        self.growth_rate = growth_rate
         layers = []
         ch = in_channels
         for _ in range(n_layers):
@@ -51,7 +57,7 @@ class ResidualDenseBlock(nn.Module):
         out = self.lff(out)
         return x + out * self.res_scale
 
-# ----- attention: lightweight CBAM (channel + spatial) -----
+# CBAM (channel + spatial)
 class ChannelAttention(nn.Module):
     def __init__(self, channels, reduction=16):
         super().__init__()
@@ -76,7 +82,6 @@ class SpatialAttention(nn.Module):
         self.conv = nn.Conv2d(2,1,kernel_size,padding=padding,bias=False)
         self.sig = nn.Sigmoid()
     def forward(self, x):
-        # x: B,C,H,W -> compute along channel
         maxc,_ = torch.max(x, dim=1, keepdim=True)
         avgc = torch.mean(x, dim=1, keepdim=True)
         cat = torch.cat([maxc, avgc], dim=1)
@@ -92,7 +97,6 @@ class CBAM(nn.Module):
         x = self.sa(x)
         return x
 
-# ----- encoder / decoder blocks -----
 class EncoderBlock(nn.Module):
     def __init__(self, in_ch, out_ch, growth_rate, rdb_layers, n_rdb=2):
         super().__init__()
@@ -100,7 +104,8 @@ class EncoderBlock(nn.Module):
         if in_ch != out_ch:
             self.match = nn.Conv2d(in_ch, out_ch, kernel_size=1, bias=False)
         self.rdbs = nn.Sequential(*[ResidualDenseBlock(out_ch, growth_rate, n_layers=rdb_layers) for _ in range(n_rdb)])
-        self.down = nn.Conv2d(out_ch, out_ch, kernel_size=3, stride=2, padding=1, bias=True)
+        # use reflection pad conv for downsample to reduce artifacts
+        self.down = conv3x3_reflect(out_ch, out_ch, stride=2, bias=True)
     def forward(self, x):
         if self.match is not None:
             x = self.match(x)
@@ -127,13 +132,13 @@ class DecoderBlock(nn.Module):
         out = self.rdbs(reduced)
         return out
 
-# ----- low-frequency branch -----
 class LowFreqBranch(nn.Module):
     def __init__(self, in_ch, mid_ch=256, out_ch=1, num_down=5):
         super().__init__()
         self.num_down = max(1, num_down)
         layers = []
         ch = in_ch
+        # Use standard conv with padding=1 (safe on small spatial sizes)
         for _ in range(self.num_down):
             layers.append(nn.Conv2d(ch, mid_ch, kernel_size=3, stride=2, padding=1, bias=True))
             layers.append(nn.ReLU(inplace=True))
@@ -141,44 +146,52 @@ class LowFreqBranch(nn.Module):
         layers.append(nn.Conv2d(ch, ch, kernel_size=3, padding=1, bias=True))
         layers.append(nn.ReLU(inplace=True))
         self.down_stack = nn.Sequential(*layers)
+
         up_layers = []
         for _ in range(self.num_down):
             up_layers.append(nn.Upsample(scale_factor=2, mode='bilinear', align_corners=False))
             up_layers.append(nn.Conv2d(mid_ch, mid_ch, kernel_size=3, padding=1, bias=True))
             up_layers.append(nn.ReLU(inplace=True))
         self.up_stack = nn.Sequential(*up_layers)
+
         self.to_res = nn.Sequential(
             nn.Conv2d(mid_ch, max(mid_ch//2,1), kernel_size=3, padding=1, bias=True),
             nn.ReLU(inplace=True),
             nn.Conv2d(max(mid_ch//2,1), out_ch, kernel_size=3, padding=1, bias=True)
         )
+
+        # smoothing conv (keep as before)
         self.smooth = nn.Conv2d(out_ch, out_ch, kernel_size=5, padding=2, bias=False, groups=1)
         self._init_smooth()
+
     def _init_smooth(self):
-        k = torch.tensor([[1,4,6,4,1],[4,16,24,16,4],[6,24,36,24,6],[4,16,24,16,4],[1,4,6,4,1]], dtype=torch.float32)
+        k = torch.tensor([[1,4,6,4,1],
+                          [4,16,24,16,4],
+                          [6,24,36,24,6],
+                          [4,16,24,16,4],
+                          [1,4,6,4,1]], dtype=torch.float32)
         k = k / k.sum()
         k = k.unsqueeze(0).unsqueeze(0)
         out_ch = self.smooth.weight.shape[0]
         k = k.repeat(out_ch,1,1,1)
         with torch.no_grad():
             self.smooth.weight.copy_(k)
+
     def forward(self, x):
+        # x: bottleneck feature (B, Cb, Hb, Wb)
+        # If spatial size is extremely small, conv with padding still works.
         d = self.down_stack(x)
         u = self.up_stack(d)
+        # restore to bottleneck spatial size before final projection
         if u.shape[-2:] != x.shape[-2:]:
             u = F.interpolate(u, size=x.shape[-2:], mode='bilinear', align_corners=False)
         res = self.to_res(u)
         res = self.smooth(res)
         return res
 
-# ----- final network -----
 class PSINetRDBUNet(nn.Module):
     def __init__(self, in_channels=3, base_channels=48, growth_rate=24, rdb_layers=4,
                  n_rdb_per_scale=2, n_scales=4, lowfreq_mid=256, lowfreq_down=5, out_channels=1, use_cbam=True):
-        """
-        Deeper defaults: n_scales=4, rdb_layers=4, base_channels=48 for stronger capacity.
-        All params are configurable when instantiating.
-        """
         super().__init__()
         self.in_channels = in_channels
         self.out_channels = out_channels
@@ -197,8 +210,6 @@ class PSINetRDBUNet(nn.Module):
 
         bottleneck_ch = ch
         self.bottleneck = nn.Sequential(*[ResidualDenseBlock(bottleneck_ch, growth_rate, n_layers=rdb_layers) for _ in range(n_rdb_per_scale)])
-
-        # attention on bottleneck (optional)
         if self.use_cbam:
             self.bottleneck_attn = CBAM(bottleneck_ch, reduction=8)
         else:
@@ -222,13 +233,13 @@ class PSINetRDBUNet(nn.Module):
             nn.Conv2d(mid//2, out_channels, kernel_size=3, padding=1)
         )
 
-        # add attention on decoder output
+        # optional attention on decoder output (identity if channel mismatch)
         if self.use_cbam:
-            self.out_attn = CBAM(out_channels if out_channels>1 else mid//2, reduction=8)
+            self.out_attn = CBAM(max(mid//2, out_channels), reduction=8)
         else:
             self.out_attn = nn.Identity()
 
-        # low-frequency branch uses bottleneck channels
+        # low-frequency branch
         self.lowfreq = LowFreqBranch(in_ch=bottleneck_ch, mid_ch=lowfreq_mid, out_ch=out_channels, num_down=lowfreq_down)
 
         gate_mid = max(bottleneck_ch//2, 1)
@@ -239,8 +250,26 @@ class PSINetRDBUNet(nn.Module):
             nn.Sigmoid()
         )
 
+        # careful initialization: make gate bias zero (sigmoid ~0.5) and small gate weights
+        with torch.no_grad():
+            try:
+                final_gate_conv = self.gate_conv[2]
+                if isinstance(final_gate_conv, nn.Conv2d):
+                    nn.init.constant_(final_gate_conv.bias, 0.0)
+                    nn.init.normal_(final_gate_conv.weight, mean=0.0, std=1e-2)
+            except Exception:
+                pass
+            # set lowfreq final conv weights small so it doesn't dominate initially
+            try:
+                last_conv = self.lowfreq.to_res[-1]
+                if isinstance(last_conv, nn.Conv2d):
+                    nn.init.constant_(last_conv.weight, 0.0)
+                    if last_conv.bias is not None:
+                        nn.init.constant_(last_conv.bias, 0.0)
+            except Exception:
+                pass
+
     def forward(self, x):
-        # x: B,3,H,W
         inp_gray = rgb_to_gray(x)  # B,1,H,W
         f = self.initial(x)
         skips = []
@@ -254,17 +283,13 @@ class PSINetRDBUNet(nn.Module):
         for dec, skip in zip(self.dec_blocks, reversed(skips)):
             out = dec(out, skip)
         res_high = self.refine_high(out)  # B,1,H,W
-        # optional attn on res_high (if CBAM expects more channels we used identity earlier)
-        # res_high_att = self.out_attn(res_high)  # out_attn expects channels matching; keep identity if sizes mismatch
 
         res_low = self.lowfreq(bottleneck_feat)
         gate = self.gate_conv(bottleneck_feat)
-        # upsample gate & res_low to full spatial size before fuse
         if gate.shape[-2:] != res_high.shape[-2:]:
             gate = F.interpolate(gate, size=res_high.shape[-2:], mode='bilinear', align_corners=False)
         if res_low.shape[-2:] != res_high.shape[-2:]:
             res_low = F.interpolate(res_low, size=res_high.shape[-2:], mode='bilinear', align_corners=False)
         res = gate * res_high + (1.0 - gate) * res_low
-        denoised = inp_gray + res  # logits-like single-channel
-        # return dict to enable losses/visualization of components
+        denoised = inp_gray + res
         return {'denoised': denoised, 'res_low': res_low, 'res_high': res_high, 'gate': gate}
